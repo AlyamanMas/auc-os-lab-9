@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -5,6 +6,11 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+// Base of numbers in files to be read
+#define NUMS_BASE 10
 
 // This describes the reading policy for each process.
 // If the first bit is set, it means the process should read the first line if
@@ -28,7 +34,7 @@ typedef enum {
   RETURN_FAILED_SHARED_MEM_ALLOC,
 } ReturnValuesEnum;
 
-int add(int x, int y) { return x + y; }
+int64_t add(int64_t x, int64_t y) { return x + y; }
 
 int parse_args(int argc, char *argv[], int *fd, int *n_proc) {
   if (argc < 3) {
@@ -58,6 +64,64 @@ int parse_args(int argc, char *argv[], int *fd, int *n_proc) {
   return 0;
 }
 
+char *seek_beginning_of_line(char *file_mem, char *current_idx) {
+  while (current_idx != file_mem) {
+    if (isspace(current_idx--[0])) {
+      return current_idx + 1;
+    }
+  }
+  fprintf(
+      stderr,
+      "Something unexpected happened in 'seek_beginning_of_line' at line %d",
+      __LINE__);
+  return NULL;
+}
+
+char *seek_next_line(char *current_idx) {
+  while (!isspace(current_idx++[0]))
+    ;
+  return current_idx - 1;
+}
+
+int64_t mmap_compute(size_t starting_idx, size_t ending_idx,
+                     uint8_t reading_policy, char *file_mem) {
+  int64_t accum = 0, temp = 0;
+  char *end;
+  char *p = &file_mem[starting_idx];
+
+  // Handle first line
+  if (starting_idx == 0) {
+    temp = strtol(p, &end, NUMS_BASE);
+    accum += temp;
+    p = end;
+  } else {
+    // Check first line read policy
+    if (reading_policy & READ_POLICY_READ_FIRST) {
+      if (p[0] == '\n')
+        p--;
+      p = seek_beginning_of_line(file_mem, p);
+    } else {
+      p = seek_next_line(p);
+    }
+  }
+
+  while (p < &file_mem[ending_idx]) {
+    temp = strtol(p, &end, NUMS_BASE);
+    if (p == end)
+      break;
+    accum += temp;
+    p = end;
+  }
+
+  // When read past the ending index but we shouldn't have read the last line
+  // according to read policy
+  if (p > &file_mem[ending_idx] && !(reading_policy & READ_POLICY_READ_LAST)) {
+    accum -= temp;
+  }
+
+  return accum;
+}
+
 int main(int argc, char *argv[]) {
   int fd, n_proc;
 
@@ -75,7 +139,7 @@ int main(int argc, char *argv[]) {
 
   // Map the file into memory for easier handling
   char *file_in_memory =
-      mmap(NULL, file_stat.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+      mmap(NULL, file_stat.st_size, PROT_READ, MAP_SHARED, fd, 0);
   if (file_in_memory == MAP_FAILED) {
     fprintf(stderr, "Failed to map file into memory\n");
     return RETURN_FAILED_MAP_FILE;
@@ -117,8 +181,23 @@ int main(int argc, char *argv[]) {
   ending_pos[n_proc - 1] = file_stat.st_size - 1;
   read_policies[n_proc - 1] = READ_POLICY_READ_FIRST | READ_POLICY_READ_LAST;
 
-  for (int i = 0; i < n_proc; ++i) {
+  for (int curr_proc = 0; curr_proc < n_proc; ++curr_proc) {
+    if (fork() == 0) {
+      proc_out[curr_proc] =
+          mmap_compute(starting_pos[curr_proc], ending_pos[curr_proc],
+                       read_policies[curr_proc], file_in_memory);
+      exit(RETURN_OK);
+    }
   }
+
+  int64_t res = 0;
+  while (wait(NULL) > 0)
+    ;
+  for (int i = 0; i < n_proc; ++i) {
+    res += proc_out[i];
+  }
+
+  printf("%ld\n", res);
 
   return 0;
 }
