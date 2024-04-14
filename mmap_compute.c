@@ -7,10 +7,10 @@
 #include <sys/stat.h>
 
 // This describes the reading policy for each process.
-// If the first bit is set, it means the process should not
-// read the first line if it initially starts reading in the middle
-// of the line. Otherwise, the process will seek to the beginning of the line
-// and read it. Similarly with the last line and the second bit.
+// If the first bit is set, it means the process should read the first line if
+// it initially starts reading from the middle of the line. Otherwise, the
+// process will seek to the next line and starting reading from there. Similarly
+// with the last line and the second bit.
 typedef enum {
   READ_POLICY_READ_MID_ONLY = 0,
   READ_POLICY_READ_FIRST = (1 << 0),

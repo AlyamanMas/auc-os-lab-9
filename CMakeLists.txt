@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.10)  # Set the minimum required version of CMake
-project(OSLab9 C)                 # Define the project name and the programming language
+cmake_minimum_required(VERSION 3.10)
+project(OSLab9 C)
 
-set(CMAKE_C_STANDARD 17)             # Set the C standard to C99
+set(CMAKE_C_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Add an executable to the project using the specified source file
